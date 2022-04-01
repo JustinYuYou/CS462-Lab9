@@ -1,0 +1,21 @@
+1. This lab uses a vector clock (Links to an external site.) algorithm to create unique message IDs based on a sequence number. Could we replace the sequence number with a timestamp? What are the advantages and disadvantages of such an approach?
+I believe we can! Since we can still compare the sequence using timestamp, it is a valid way to do it.
+The pros is that we can look at the time now, and the cons is that it is a bit more complicated to compare.
+
+2. Are the temperature messages in order? Why or why not? If not, what could you do to fix this?
+The temperature messages are in order based on what I observed.
+
+3. How did you avoid looping (sending messages back to someone who already has it)? Why was the unique ID helpful?
+We use the unique ID to check if it is there already. It is useful because we can check which pico has received the messages.
+
+4. The propagation algorithm sleeps for n seconds between each iteration. What are the trade-offs between a low and high value for n.
+A low value has the benefit that it comes to consistency faster but use up more computing resources.
+Whereras a high value has the benefit that it takes longer for the consistency, but need less computing resources. 
+
+5. Did new messages eventually end on all the nodes that were connected? Were the messages displayed in the same order on each node? Why or why not?
+Yes, no it is not because it takes different time to reach the message to those picos.
+
+6. Why does temporarily disconnecting a node from the network not result in permanent gaps in the messages seen at that node?
+Because there will be missing state(private state) for the pico, it is hard to track.
+
+7. Describe, in a paragraph or two, how you could use the basic scheme implemented here to add failure detection to the system using a reachability table.
