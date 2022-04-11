@@ -30,6 +30,10 @@ ruleset wovyn_base {
       get_cron = function() {
          ent:cron
       }
+
+      get_violated_counter = function() {
+         ent:violated_sensor_count
+      }
    }
 
    rule intialization {
@@ -41,19 +45,16 @@ ruleset wovyn_base {
          ent:private_state := {}
          ent:schedule_id := ""
          ent:cron := <<  0/10 * * * * * >>
+         ent:violated_sensor_count := 0
+         ent:map_operations := {}
+         ent:current_violated := false
+         ent:gloable_operation_state := {}
+         ent:private_operation_state := {} 
       }
    }
 
-   // rule process_heartbeat {
-   //    select when wovyn heartbeat where event:attrs{"genericThing"} 
-   //    fired {
-   //       raise wovyn event "new_temperature_reading"
-   //          attributes {
-   //             "temperature": event:attrs{"genericThing"}{"data"}{"temperature"}[0]{"temperatureF"},
-   //             "timestamp": event:time
-   //          } 
-   //    }
-   // }
+
+
    rule collect_temperatures {
       select when wovyn new_temperature_reading
       pre {
@@ -68,6 +69,33 @@ ruleset wovyn_base {
             "Timestamp": event:time
          }
          ent:sequence_num := ent:sequence_num + 1
+
+
+         raise wovyn event "violated_temp"
+            if (event:attrs{"temperature"} > 50);
+         raise woyvn event "non_violated_temp"
+            if (event:attrs{"temperature"} <= 50);
+      }
+   }
+
+   // 1. violated -> +1 to the counter
+   rule violated_temp {
+      select when wovyn violated_temp
+      if not ent:current_violated then noop() 
+      fired {
+         ent:map_operations{random:uuid()} := 1
+         ent:violated_sensor_count := ent:violated_sensor_count+1
+         ent:current_violated := true
+      }
+   }
+
+   rule non_violated_temp {
+      select when wovyn non_violated_temp
+      if ent:current_violated then noop()
+      fired {
+         ent:map_operations{random:uuid()} := -1
+         ent:violated_sensor_count := ent:violated_sensor_count-1
+         ent:current_violated := false
       }
    }
 
@@ -75,15 +103,6 @@ ruleset wovyn_base {
       select when end heartbeat
       schedule:remove(ent:schedule_id)
    }
-
-   // rule change_schedule {
-   //    select when change get_cron
-   //    always {
-   //       ent:cron := event:attrs{"cron"}
-   //       raise end event "heartbeat"
-   //       raise wake event "heartbeat"
-   //    }
-   // }
 
    rule start_schedule {
       select when wake heartbeat
@@ -158,6 +177,35 @@ ruleset wovyn_base {
       }
    }
 
+   rule send_counter_rumor {
+      select when send counter_rumor
+      pre {
+      }
+
+      if receiving_tx != null then
+         event:send({ 
+            "eci": receiving_tx, 
+            "domain":"gossip", "name":"counter_rumor",
+            "attrs": {
+              "rumor_message": rumor_message
+            }
+         })
+
+      always {
+         ent:private_counter_state{[receiving_tx, message_sender]} := seq
+      }
+   }
+
+   rule react_counter_rumor {
+      select when gossip counter_rumor
+      pre {
+         oid = rumor_message{"oid"}
+      }
+      if ent:map_operations >< oid then noops()
+      fired {
+         ent:global_state{[oid, message_id]} := rumor_counter_message
+      }
+   }
    // Send my private state to others
    rule send_seen {
       select when send seen_m
@@ -167,12 +215,10 @@ ruleset wovyn_base {
            "domain":"gossip", "name":"seen_m",
            "attrs": {
              "seen_message": get_my_seen(),
-             "Tx": subs{"Rx"}
+             "Tx": subs{"Rx"},
            }
          })
-
    }
-
    rule react_seen {
       select when gossip seen_m
       pre {
@@ -181,6 +227,31 @@ ruleset wovyn_base {
       }
       always {
          ent:private_state{tx_channel} := seen_message
+      }
+   }
+
+   
+   rule send_counter_seen {
+      select when send seen_m
+      foreach subs:established() setting(subs, i)
+      event:send({ 
+        "eci": subs{"Tx"}, 
+        "domain":"gossip", "name":"counter_seen",
+        "attrs": {
+          "operations": ent:map_operations.keys(),
+          "Tx": subs{"Rx"},
+        }
+      })
+   }
+
+   rule react_counter_seen {
+      select when gossip counter_seen
+      pre {
+         operations = event:attrs{"operations"}
+         tx_channel = event:attrs{"Tx"}
+      }
+      always {
+         ent:private_operation_state{tx_channel} := operations
       }
    }
 
