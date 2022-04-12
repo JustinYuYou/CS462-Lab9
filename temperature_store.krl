@@ -53,6 +53,5 @@ ruleset temperature_store {
          clear ent:temperatures
          clear ent:temperaturesViolated
       }
-
    }
 }

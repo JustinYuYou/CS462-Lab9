@@ -2,7 +2,7 @@ ruleset wovyn_base {
    meta {
       use module io.picolabs.subscription alias subs
       use module temperature_store
-      shares global_state, private_state, get_my_seen, get_my_unique_id, get_cron
+      shares global_state, private_state, get_my_seen, get_my_unique_id, get_violated_counter
    }
 
    global {
@@ -26,13 +26,16 @@ ruleset wovyn_base {
       get_temperature = function() {
          ent:temperatures
       }
-      
-      get_cron = function() {
-         ent:cron
-      }
 
       get_violated_counter = function() {
          ent:violated_sensor_count
+      }
+
+      get_map_operations = function() {
+         ent:map_operations
+      }
+      get_private_operation_state = function() {
+         ent:private_operation_state
       }
    }
 
@@ -48,12 +51,9 @@ ruleset wovyn_base {
          ent:violated_sensor_count := 0
          ent:map_operations := {}
          ent:current_violated := false
-         ent:gloable_operation_state := {}
          ent:private_operation_state := {} 
       }
    }
-
-
 
    rule collect_temperatures {
       select when wovyn new_temperature_reading
@@ -117,15 +117,14 @@ ruleset wovyn_base {
    rule gossip {
       select when gossip heartbeat
       pre {
-         flip = random:integer(1) // 0 rumor, 1 seen
+         flip = random:integer(3) // 0 rumor, 1 seen
       }
 
-      if flip == 0 then noop()
-
-      fired {
-         raise send event "rumor"
-      } else {
-         raise send event "seen_m"
+      always {
+         raise send event "rumor" if (flip == 0)
+         raise send event "seen_m" if (flip == 1)
+         raise send event "counter_rumor" if (flip == 2)
+         raise send event "counter_seen" if (flip == 3)
       }
    }
 
@@ -179,31 +178,44 @@ ruleset wovyn_base {
 
    rule send_counter_rumor {
       select when send counter_rumor
-      pre {
+      pre {//v an array of oids other pico has seen
+         // k is tx_channel
+         confirm = "test".klog()
+         sensor_map = ent:private_operation_state.klog("private_state").filter(function(v,k){ent:map_operations.klog("operations").keys().difference(v).klog("diff").length() > 0}).klog() //map_operation: ours 
+         sensor_map_len = sensor_map.keys().klog()
+         random_tx_to_send = sensor_map.keys()[random:integer(sensor_map_len)].klog()
+
+         oid_diffs = ent:map_operations.keys().difference(sensor_map{random_tx_to_send})[0].klog()
+         
       }
 
-      if receiving_tx != null then
-         event:send({ 
-            "eci": receiving_tx, 
-            "domain":"gossip", "name":"counter_rumor",
-            "attrs": {
-              "rumor_message": rumor_message
-            }
-         })
+      event:send({ 
+         "eci": random_tx_to_send, 
+         "domain":"gossip", "name":"counter_rumor",
+         "attrs": {
+           "rumor_message": {
+            "oid": oid_diffs,
+            "operation": ent:map_operations{oid_diffs}
+           } 
+         }
+      })
 
       always {
-         ent:private_counter_state{[receiving_tx, message_sender]} := seq
+         ent:private_operation_state{random_tx_to_send} := ent:private_operation_state{random_tx_to_send}.append(oid_diffs)
       }
    }
 
    rule react_counter_rumor {
       select when gossip counter_rumor
       pre {
-         oid = rumor_message{"oid"}
+         oid = event:attrs{"rumor_message"}{"oid"}
+         operation = event:attrs{"rumor_message"}{"operation"}
       }
-      if ent:map_operations >< oid then noops()
+      if not(ent:map_operations >< oid) then noop()
+      
       fired {
-         ent:global_state{[oid, message_id]} := rumor_counter_message
+         ent:map_operations{oid} := operation
+         ent:violated_sensor_count := ent:violated_sensor_count + operation
       }
    }
    // Send my private state to others
@@ -255,12 +267,26 @@ ruleset wovyn_base {
       }
    }
 
+   rule clear_counter_state {
+      select when testing empty_counter_seen
+      always {
+         ent:private_operation_state := {}
+         ent:violated_sensor_count := 0
+         ent:map_operations := {}
+         ent:current_violated := false
+      }
+   }
+
    rule remove_all_state {
       select when gossip remove_state
       always {
          ent:sequence_num := 0
          ent:global_state := {}
-         ent:private_state := {}      
+         ent:private_state := {}
+         ent:private_operation_state := {}
+         ent:violated_sensor_count := 0
+         ent:map_operations := {}
+         ent:current_violated := false 
       }
    }
 }

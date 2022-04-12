@@ -274,4 +274,14 @@ ruleset manage_sensors {
    //       }
    //    })
    // }
+
+   rule clean_state {
+      select when clean state
+      always {
+         ent:wellKnown_ecis := []
+         ent:reports := {}
+         ent:cid := 0
+         ent:current := 0
+      }
+   }
 }
