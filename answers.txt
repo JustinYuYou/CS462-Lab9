@@ -8,7 +8,10 @@ No, because I just added another seen type message called counter seen, so that 
 Instead of categorizing and grouping the message, we don't do that in CRDT for our message types.
 
 4. Is it possible for a node to issue two positive threshold violation messages (i.e. value = 1) without an intervening negative threshold violation messages (i.e. value = -1)? Justify your analysis. What are the consequences of such a scenario?  
+No, based on my implementation, it is impossible to do that since I have a guard condition to make sure it doesn't increase twice when it is being violated already
 
 5. How does gossip messaging combined with CRDT compare with Paxos? Consider the threshold counter we implemented for this lab. How would it be different if you tried to use Paxos to implement it? 
+The purpose of CRDT is for eventual consistency while Paxos is for consensus.
 
 6. How does gossip messaging combined with CRDT compare with Byzantine consensus (like in a blockchain)? 
+The purpose of CRDT is for eventual consistency while Byzantine consensus is for consensus.
